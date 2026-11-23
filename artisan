@@ -1,0 +1,19 @@
+#!/usr/bin/env php
+<?php
+
+use Illuminate\Foundation\Application;
+use Symfony\Component\Console\Input\ArgvInput;
+
+define('LARAVEL_START', microtime(true));
+
+// Muat autoloader Composer agar class aplikasi dan dependensi dapat digunakan.
+require __DIR__.'/vendor/autoload.php';
+
+// Inisialisasi aplikasi sebelum meneruskan perintah CLI kepada Laravel.
+/** @var Application $app */
+$app = require_once __DIR__.'/bootstrap/app.php';
+
+// Jalankan perintah yang diminta dan simpan kode keluar untuk proses shell.
+$status = $app->handleCommand(new ArgvInput);
+
+exit($status);
