@@ -48,4 +48,25 @@ class AdminKategoriIndexTest extends TestCase
             'nama_kategori' => 'Elektronik',
         ]);
     }
+
+    /** Memastikan nama kategori yang mengandung angka ditolak saat tambah maupun ubah. */
+    public function test_admin_cannot_create_category_with_a_numeric_only_name(): void
+    {
+        $user = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($user)
+            ->post(route('admin.kategori.store'), [
+                'nama_kategori' => '12345',
+            ])
+            ->assertSessionHasErrors('nama_kategori');
+
+        $this->actingAs($user)
+            ->post(route('admin.kategori.store'), [
+                'nama_kategori' => 'Elektronik 2',
+            ])
+            ->assertSessionHasErrors('nama_kategori');
+
+        $this->assertDatabaseMissing('kategori', ['nama_kategori' => '12345']);
+        $this->assertDatabaseMissing('kategori', ['nama_kategori' => 'Elektronik 2']);
+    }
 }

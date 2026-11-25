@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Peminjaman;
+use App\Models\Pengembalian;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** Kelas pengujian tampilan serta pembatasan aksi pada area administrator. */
@@ -46,5 +48,46 @@ class AdminPengembalianIndexTest extends TestCase
         ])->assertStatus(405);
 
         $this->assertDatabaseMissing('pengembalian', ['peminjaman_id' => $peminjaman->id]);
+    }
+
+    public function test_petugas_return_history_orders_recently_updated_records_first(): void
+    {
+        $petugas = User::factory()->create(['role' => 'petugas']);
+        $peminjam = User::factory()->create(['role' => 'peminjam']);
+        $lama = $this->buatPengembalian($peminjam);
+        $baru = $this->buatPengembalian($peminjam);
+
+        DB::table('pengembalian')->where('id', $lama->id)->update([
+            'updated_at' => now()->subDay(),
+        ]);
+        DB::table('pengembalian')->where('id', $baru->id)->update([
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->actingAs($petugas)->get(route('petugas.pengembalian.index'));
+
+        $response->assertOk();
+        $this->assertSame(
+            [$baru->id, $lama->id],
+            $response->viewData('pengembalian')->getCollection()->pluck('id')->all()
+        );
+    }
+
+    private function buatPengembalian(User $peminjam): Pengembalian
+    {
+        $peminjaman = Peminjaman::create([
+            'user_id' => $peminjam->id,
+            'tanggal_pinjam' => today()->toDateString(),
+            'tanggal_kembali_rencana' => today()->addDay()->toDateString(),
+            'status' => 'Dikembalikan',
+        ]);
+
+        return Pengembalian::create([
+            'peminjaman_id' => $peminjaman->id,
+            'tanggal_kembali' => today()->toDateString(),
+            'status' => 'Tepat Waktu',
+            'denda' => 0,
+            'denda_kerusakan' => 0,
+        ]);
     }
 }

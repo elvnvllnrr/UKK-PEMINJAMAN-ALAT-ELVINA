@@ -19,6 +19,23 @@
     </a>
 </div>
 
+<form action="{{ route('peminjam.katalog') }}" method="GET" id="alat-search-form" class="mb-4">
+    <div class="input-group">
+        <span class="input-group-text bg-white border-end-0">
+            <i class="fas fa-search text-muted"></i>
+        </span>
+        <input
+            type="search"
+            name="search"
+            id="alat-search"
+            class="form-control border-start-0"
+            placeholder="Cari nama alat, kategori, atau kode alat..."
+            value="{{ $search }}"
+            autocomplete="off"
+        >
+    </div>
+</form>
+
 {{-- Tampilkan ringkasan kesalahan setelah validasi formulir gagal. --}}
 @if($errors->any())
     <div class="alert alert-danger" role="alert">
@@ -45,7 +62,7 @@
 
 {{-- Tampilkan blok ini hanya jika kondisi ($alat->foto) terpenuhi. --}}
                     @if($alat->foto)
-                        <img src="{{ asset('storage/' . $alat->foto) }}" class="w-100" style="height: 190px; object-fit: cover;" alt="{{ $alat->nama_alat }}">
+                        <img src="{{ $alat->foto_url }}" class="w-100" style="height: 190px; object-fit: cover;" alt="{{ $alat->nama_alat }}">
 
 {{-- Tampilkan fallback bila seluruh cabang kondisi sebelumnya tidak terpenuhi. --}}
                     @else
@@ -88,8 +105,8 @@
                 <div class="card text-center py-5">
                     <div class="card-body">
                         <i class="fas fa-box-open fa-3x text-muted mb-3" aria-hidden="true"></i>
-                        <h2 class="h5">Belum ada alat tersedia</h2>
-                        <p class="text-muted mb-0">Silakan periksa kembali nanti.</p>
+                        <h2 class="h5">{{ $search !== '' ? 'Data alat tidak ditemukan' : 'Belum ada alat tersedia' }}</h2>
+                        <p class="text-muted mb-0">{{ $search !== '' ? 'Coba kata kunci lain.' : 'Silakan periksa kembali nanti.' }}</p>
                     </div>
                 </div>
             </div>
@@ -106,11 +123,11 @@
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label for="tanggal-pinjam" class="form-label">Tanggal mulai</label>
-                        <input id="tanggal-pinjam" type="date" name="tanggal_pinjam" class="form-control" value="{{ old('tanggal_pinjam', now()->toDateString()) }}" required>
+                        <input id="tanggal-pinjam" type="date" name="tanggal_pinjam" class="form-control" value="{{ old('tanggal_pinjam', now()->toDateString()) }}" min="{{ today()->toDateString() }}" required>
                     </div>
                     <div class="col-md-6">
                         <label for="tanggal-kembali" class="form-label">Rencana kembali</label>
-                        <input id="tanggal-kembali" type="date" name="tanggal_kembali_rencana" class="form-control" value="{{ old('tanggal_kembali_rencana', now()->addDay()->toDateString()) }}" required>
+                        <input id="tanggal-kembali" type="date" name="tanggal_kembali_rencana" class="form-control" value="{{ old('tanggal_kembali_rencana', now()->addDay()->toDateString()) }}" min="{{ today()->toDateString() }}" required>
                     </div>
                     <div class="col-12">
                         <label for="catatan" class="form-label">Catatan <span class="text-muted">(opsional)</span></label>
@@ -127,5 +144,53 @@
         </div>
     @endif
 </form>
+@push('scripts')
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const searchInput = document.getElementById('alat-search');
+        const searchForm = document.getElementById('alat-search-form');
+        let searchTimer;
 
+        if (!searchInput || !searchForm) {
+            return;
+        }
+
+        searchInput.addEventListener('input', function () {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(function () {
+                searchForm.submit();
+            }, 400);
+        });
+    });
+</script>
+@endpush
 @endsection
+
+@push('scripts')
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const startInput = document.getElementById('tanggal-pinjam');
+    const returnInput = document.getElementById('tanggal-kembali');
+    if (!startInput || !returnInput) {
+        return;
+    }
+
+    const syncReturnMin = () => {
+        const startDate = new Date(startInput.value + 'T00:00:00');
+        if (Number.isNaN(startDate.getTime())) {
+            return;
+        }
+        const nextDay = new Date(startDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const minReturn = nextDay.toISOString().slice(0, 10);
+        returnInput.min = minReturn;
+        if (!returnInput.value || returnInput.value < minReturn) {
+            returnInput.value = minReturn;
+        }
+    };
+
+    startInput.addEventListener('change', syncReturnMin);
+    syncReturnMin();
+});
+</script>
+@endpush

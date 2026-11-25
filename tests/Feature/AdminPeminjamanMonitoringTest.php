@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Peminjaman;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** Kelas pengujian fitur katalog dan peminjaman milik peminjam. */
@@ -79,6 +80,43 @@ class AdminPeminjamanMonitoringTest extends TestCase
         // Memverifikasi respons atau keadaan yang menjadi ketentuan kasus ini.
         $this->assertSame(today()->addDays(2)->toDateString(), $peminjaman->fresh()->tanggal_kembali_rencana);
         $this->assertSame('Dipinjam', $peminjaman->fresh()->status);
+    }
+
+    public function test_staff_borrowing_list_orders_recently_updated_records_first(): void
+    {
+        $staff = User::factory()->create(['role' => 'petugas']);
+        $borrower = User::factory()->create(['role' => 'peminjam']);
+        $older = Peminjaman::create([
+            'user_id' => $borrower->id,
+            'tanggal_pinjam' => today()->addDays(3)->toDateString(),
+            'tanggal_kembali_rencana' => today()->addDays(5)->toDateString(),
+            'status' => 'Menunggu Persetujuan',
+            'catatan' => 'permohonan lebih lama',
+        ]);
+        $newer = Peminjaman::create([
+            'user_id' => $borrower->id,
+            'tanggal_pinjam' => today()->toDateString(),
+            'tanggal_kembali_rencana' => today()->addDays(2)->toDateString(),
+            'status' => 'Menunggu Persetujuan',
+            'catatan' => 'permohonan terbaru',
+        ]);
+
+        DB::table('peminjaman')->where('id', $older->id)->update([
+            'updated_at' => now()->subDay(),
+        ]);
+        DB::table('peminjaman')->where('id', $newer->id)->update([
+            'updated_at' => now(),
+        ]);
+
+        foreach (range(1, 2) as $refresh) {
+            $response = $this->actingAs($staff)->get(route('petugas.peminjaman.index'));
+            $response->assertOk();
+
+            $this->assertSame(
+                [$newer->id, $older->id],
+                $response->viewData('peminjaman')->getCollection()->pluck('id')->all()
+            );
+        }
     }
 
     /** Memastikan peminjam dapat mengajukan permintaan meski catatan opsional kosong. */

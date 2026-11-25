@@ -85,6 +85,12 @@
                     @error('foto')
                         <div class="invalid-feedback">{{ $message }}</div>
                     @enderror
+                    @if($alat->foto)
+                        <div class="mt-2">
+                            <small class="text-muted d-block mb-1">Foto saat ini:</small>
+                            <img src="{{ $alat->foto_url }}" alt="{{ $alat->nama_alat }}" class="img-thumbnail" style="max-height: 90px; object-fit: cover;">
+                        </div>
+                    @endif
                 </div>
             </div>
 

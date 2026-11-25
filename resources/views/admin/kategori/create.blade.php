@@ -20,7 +20,7 @@
             @csrf
             <div class="mb-3">
                 <label class="form-label fw-semibold">Nama Kategori <span class="text-danger">*</span></label>
-                <input type="text" class="form-control @error('nama_kategori') is-invalid @enderror" name="nama_kategori" value="{{ old('nama_kategori') }}" required>
+                <input type="text" class="form-control @error('nama_kategori') is-invalid @enderror" name="nama_kategori" value="{{ old('nama_kategori') }}" pattern="[^0-9]+" title="Nama kategori tidak boleh mengandung angka" required>
                 @error('nama_kategori')
                     <div class="invalid-feedback">{{ $message }}</div>
                 @enderror

@@ -15,6 +15,17 @@
     </div>
     <div class="card-body">
 
+        @if($errors->any())
+            <div class="alert alert-danger" role="alert">
+                <div class="fw-semibold mb-1">Periksa kembali data berikut:</div>
+                <ul class="mb-0">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
 {{-- Form untuk menyimpan data baru pada penambahan pengguna. --}}
         <form action="{{ route('admin.users.store') }}" method="POST">
             @csrf

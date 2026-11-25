@@ -85,6 +85,7 @@ class BorrowingWorkflowTest extends TestCase
         $this->assertSame('Dipinjam', $peminjaman->fresh()->status);
         $this->assertSame(1, $laptop->fresh()->stok);
         $this->assertSame(1, $proyektor->fresh()->stok);
+        $this->assertSame($petugas->id, $peminjaman->fresh()->petugas_id);
 
         // Mengirim permintaan ke rute yang menjadi sasaran pengujian.
         $this->post(route('petugas.peminjaman.approve', $peminjaman))
@@ -269,7 +270,7 @@ class BorrowingWorkflowTest extends TestCase
         $this->actingAs($petugas)->post(route('petugas.pengembalian.store'), [
             'peminjaman_id' => $peminjaman->id,
             'tanggal_kembali' => today()->toDateString(),
-            'denda_kerusakan' => 25000,
+            'denda_kerusakan' => '10.500',
             'catatan' => 'Kamera rusak saat digunakan.',
             'detail' => [
                 $details[$laptop->id]->id => ['kondisi_kembali' => 'Baik'],
@@ -281,12 +282,61 @@ class BorrowingWorkflowTest extends TestCase
         $this->assertDatabaseHas('pengembalian', [
             'peminjaman_id' => $peminjaman->id,
             'status' => 'Rusak',
-            'denda' => 27000,
-            'denda_kerusakan' => 25000,
+            'denda' => 12500,
+            'denda_kerusakan' => 10500,
         ]);
         $this->assertSame(1, $laptop->fresh()->stok);
         $this->assertSame(0, $kamera->fresh()->stok);
         $this->assertSame('Rusak Berat', $details[$kamera->id]->fresh()->kondisi_kembali);
+    }
+
+    public function test_return_cannot_be_processed_twice_or_increase_stock_twice(): void
+    {
+        $petugas = User::factory()->create(['role' => 'petugas']);
+        $peminjam = User::factory()->create(['role' => 'peminjam']);
+        [$alat] = $this->buatAlatDenganStok([0]);
+        $peminjaman = $this->buatPeminjaman($peminjam, [$alat], today()->addDay()->toDateString());
+        $detail = $peminjaman->detailPeminjaman->first();
+        $data = [
+            'peminjaman_id' => $peminjaman->id,
+            'tanggal_kembali' => today()->toDateString(),
+            'detail' => [$detail->id => ['kondisi_kembali' => 'Baik']],
+        ];
+
+        $this->actingAs($petugas)
+            ->post(route('petugas.pengembalian.store'), $data)
+            ->assertRedirect(route('petugas.pengembalian.index'));
+        $this->post(route('petugas.pengembalian.store'), $data)
+            ->assertSessionHasErrors('peminjaman_id');
+
+        $this->assertSame(1, $alat->fresh()->stok);
+        $this->assertSame(1, Pengembalian::where('peminjaman_id', $peminjaman->id)->count());
+        $this->assertDatabaseHas('pengembalian', [
+            'peminjaman_id' => $peminjaman->id,
+            'petugas_id' => $petugas->id,
+        ]);
+    }
+
+    public function test_lost_tool_does_not_increase_available_stock(): void
+    {
+        $petugas = User::factory()->create(['role' => 'petugas']);
+        $peminjam = User::factory()->create(['role' => 'peminjam']);
+        [$alat] = $this->buatAlatDenganStok([0]);
+        $peminjaman = $this->buatPeminjaman($peminjam, [$alat], today()->addDay()->toDateString());
+        $detail = $peminjaman->detailPeminjaman->first();
+
+        $this->actingAs($petugas)->post(route('petugas.pengembalian.store'), [
+            'peminjaman_id' => $peminjaman->id,
+            'tanggal_kembali' => today()->toDateString(),
+            'denda_kerusakan' => 0,
+            'detail' => [$detail->id => ['kondisi_kembali' => 'Hilang']],
+        ])->assertRedirect(route('petugas.pengembalian.index'));
+
+        $this->assertSame(0, $alat->fresh()->stok);
+        $this->assertDatabaseHas('pengembalian', [
+            'peminjaman_id' => $peminjaman->id,
+            'status' => 'Hilang',
+        ]);
     }
 
     /** Memastikan alat kondisi baik tidak dikenai denda. */
@@ -361,7 +411,7 @@ class BorrowingWorkflowTest extends TestCase
 
         // Mengirim permintaan ke rute yang menjadi sasaran pengujian.
         $this->actingAs($admin)->put(route('admin.pengembalian.update', $pengembalian), [
-            'tanggal_kembali' => today()->subDay()->toDateString(),
+            'tanggal_kembali' => today()->toDateString(),
             'denda_kerusakan' => 0,
         ])->assertRedirect(route('admin.pengembalian.index'));
 
@@ -369,9 +419,44 @@ class BorrowingWorkflowTest extends TestCase
         $this->assertDatabaseHas('pengembalian', [
             'id' => $pengembalian->id,
             'status' => 'Terlambat',
-            'denda' => 2000,
+            'denda' => 3000,
             'denda_kerusakan' => 0,
         ]);
+    }
+
+    public function test_updating_damage_fine_accepts_unformatted_integer_amount(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $peminjam = User::factory()->create(['role' => 'peminjam']);
+        $peminjaman = Peminjaman::create([
+            'user_id' => $peminjam->id,
+            'tanggal_pinjam' => today()->subDays(2)->toDateString(),
+            'tanggal_kembali_rencana' => today()->toDateString(),
+            'status' => 'Dikembalikan',
+        ]);
+        $pengembalian = Pengembalian::create([
+            'peminjaman_id' => $peminjaman->id,
+            'tanggal_kembali' => today()->toDateString(),
+            'status' => 'Rusak',
+            'denda' => 0,
+            'denda_kerusakan' => 0,
+        ]);
+
+        $this->actingAs($admin)->put(route('admin.pengembalian.update', $pengembalian), [
+            'tanggal_kembali' => today()->toDateString(),
+            'denda_kerusakan' => '10500',
+            'catatan' => 'Denda kerusakan alat.',
+        ])->assertRedirect(route('admin.pengembalian.index'));
+
+        $this->assertDatabaseHas('pengembalian', [
+            'id' => $pengembalian->id,
+            'denda' => 10500,
+            'denda_kerusakan' => 10500,
+        ]);
+
+        $this->get(route('admin.pengembalian.edit', $pengembalian))
+            ->assertOk()
+            ->assertSee('value="10.500"', false);
     }
 
     /** Menyiapkan data pendukung pengujian agar setiap kasus memiliki alat atau peminjaman yang konsisten. */

@@ -17,7 +17,9 @@
     $adaKerusakan = $peminjaman->detailPeminjaman->contains(
         fn ($detail) => old("detail.{$detail->id}.kondisi_kembali", $detail->kondisi_kembali ?? 'Baik') !== 'Baik'
     );
-    $dendaKerusakanDefault = $adaKerusakan ? (float) old('denda_kerusakan', 0) : 0;
+    $dendaKerusakanDefault = $adaKerusakan
+        ? (int) preg_replace('/\D/', '', (string) old('denda_kerusakan', '0'))
+        : 0;
 @endphp
 
 <div class="mb-4">
@@ -134,6 +136,7 @@
                         name="tanggal_kembali"
                         class="form-control"
                         value="{{ $tanggalKembaliDefault }}"
+                        min="{{ today()->toDateString() }}"
                         max="{{ today()->toDateString() }}"
                         required
                     >
@@ -172,14 +175,12 @@
                                 <label for="denda-kerusakan" class="form-label">Denda kerusakan/kehilangan (Rp)</label>
                                 <input
                                     id="denda-kerusakan"
-                                    type="number"
+                                    type="text"
                                     name="denda_kerusakan"
                                     class="form-control"
-                                    value="{{ old('denda_kerusakan', 0) }}"
-                                    min="0"
-                                    max="9999999999.99"
-                                    step="1"
+                                    value="{{ number_format($dendaKerusakanDefault, 0, ',', '.') }}"
                                     inputmode="numeric"
+                                    autocomplete="off"
 
 {{-- Tampilkan blok ini hanya jika kondisi (!$adaKerusakan) terpenuhi. --}}
                                     @if(!$adaKerusakan) disabled @endif
@@ -233,12 +234,36 @@
         const dailyRate = Number(lateFineSummary.dataset.dailyRate);
         const currency = new Intl.NumberFormat('id-ID');
 
+        const formatDamageFineInput = () => {
+            const cursor = damageFineInput.selectionStart;
+            const digitsBeforeCursor = damageFineInput.value.slice(0, cursor).replace(/\D/g, '').length;
+            const digits = damageFineInput.value.replace(/\D/g, '');
+            const formatted = digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+            damageFineInput.value = formatted;
+
+            if (cursor !== null) {
+                let nextCursor = 0;
+                let digitCount = 0;
+                while (nextCursor < formatted.length && digitCount < digitsBeforeCursor) {
+                    if (/\d/.test(formatted[nextCursor])) {
+                        digitCount++;
+                    }
+                    nextCursor++;
+                }
+                damageFineInput.setSelectionRange(nextCursor, nextCursor);
+            }
+
+            return Number(digits || 0);
+        };
+
         const updateDamageFields = () => {
             const hasDamage = Array.from(conditions).some((condition) => condition.value !== 'Baik');
             damageFields.hidden = !hasDamage;
             damageFineInput.disabled = !hasDamage;
             noteInput.disabled = !hasDamage;
-            noteInput.required = hasDamage && Number(damageFineInput.value) > 0;
+            const damageFine = formatDamageFineInput();
+            noteInput.required = hasDamage && damageFine > 0;
 
             const [dueYear, dueMonth, dueDay] = dueDate.split('-').map(Number);
             const [returnYear, returnMonth, returnDay] = returnDateInput.value.split('-').map(Number);
@@ -246,11 +271,11 @@
             const returnTime = Date.UTC(returnYear, returnMonth - 1, returnDay);
             const lateDays = Math.max(0, Math.floor((returnTime - dueTime) / 86400000));
             const lateFine = lateDays * dailyRate;
-            const damageFine = hasDamage ? Number(damageFineInput.value || 0) : 0;
+            const damageFineTotal = hasDamage ? damageFine : 0;
 
             lateDaysLabel.textContent = lateDays > 0 ? `${lateDays} hari terlambat` : 'Tidak terlambat';
             lateFineAmount.textContent = currency.format(lateFine);
-            totalFineAmount.textContent = currency.format(lateFine + damageFine);
+            totalFineAmount.textContent = currency.format(lateFine + damageFineTotal);
         };
 
         conditions.forEach((condition) => condition.addEventListener('change', updateDamageFields));

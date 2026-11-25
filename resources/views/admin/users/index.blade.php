@@ -47,7 +47,7 @@
                             <td>
 
 {{-- Pilih tampilan atau aksi sesuai peran pengguna pada daftar pengguna. --}}
-                                @if($user->role === 'admin')
+                                @if($user->role === 'admin' || $user->username === 'admin')
                                     <span class="badge bg-danger">Admin</span>
 
 {{-- Tangani cabang alternatif jika kondisi ($user->role === 'petugas') terpenuhi. --}}
@@ -64,14 +64,19 @@
                                     <i class="fas fa-edit"></i>
                                 </a>
 
-{{-- Form untuk mengirim permintaan penghapusan pada daftar pengguna. --}}
-                                <form action="{{ route('admin.users.destroy', $user) }}" method="POST" class="d-inline" onsubmit="return confirm('Yakin hapus user ini?')">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit" class="btn btn-sm btn-danger">
+                                @if($user->role === 'admin')
+                                    <button type="button" class="btn btn-sm btn-danger" disabled title="Akun admin tidak dapat dihapus" aria-label="Akun admin tidak dapat dihapus">
                                         <i class="fas fa-trash"></i>
                                     </button>
-                                </form>
+                                @else
+                                    <form action="{{ route('admin.users.destroy', $user) }}" method="POST" class="d-inline" onsubmit="return confirm('Yakin hapus user ini?')">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="btn btn-sm btn-danger">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+                                @endif
                             </td>
                         </tr>
 {{-- Tampilkan status kosong ketika koleksi tidak memiliki data. --}}

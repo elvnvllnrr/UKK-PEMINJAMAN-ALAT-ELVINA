@@ -22,7 +22,7 @@
 
 {{-- Tampilkan blok ini hanya jika kondisi ($alat->foto) terpenuhi. --}}
                 @if($alat->foto)
-                    <img src="{{ asset('storage/' . $alat->foto) }}" alt="{{ $alat->nama_alat }}" class="img-fluid rounded border" style="max-height: 280px; object-fit: cover;">
+                    <img src="{{ $alat->foto_url }}" alt="{{ $alat->nama_alat }}" class="img-fluid rounded border" style="max-height: 280px; object-fit: cover;">
 
 {{-- Tampilkan fallback bila seluruh cabang kondisi sebelumnya tidak terpenuhi. --}}
                 @else

@@ -12,15 +12,34 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="fas fa-boxes me-2"></i>Daftar Alat</span>
-        <a href="{{ route('admin.alat.create') }}" class="btn btn-light">
-            <i class="fas fa-plus me-2"></i>Tambah Alat
-        </a>
+        @if(auth()->user()->role === 'admin')
+            <a href="{{ route('admin.alat.create') }}" class="btn btn-light">
+                <i class="fas fa-plus me-2"></i>Tambah Alat
+            </a>
+        @endif
     </div>
     <div class="card-body">
+        <form action="{{ auth()->user()->role === 'admin' ? route('admin.alat.index') : route('petugas.alat.index') }}" method="GET" id="alat-search-form" class="mb-4">
+            <div class="input-group">
+                <span class="input-group-text bg-white border-end-0">
+                    <i class="fas fa-search text-muted"></i>
+                </span>
+                <input
+                    type="search"
+                    name="search"
+                    id="alat-search"
+                    class="form-control border-start-0"
+                    placeholder="Cari nama alat, kategori, atau kode alat..."
+                    value="{{ $search }}"
+                    autocomplete="off"
+                >
+            </div>
+        </form>
+
         <div class="table-responsive">
 
 {{-- Tabel ringkasan data pada daftar alat beserta status ketersediaannya. --}}
-            <table class="table table-hover align-middle">
+            <table id="alat-table" class="table table-hover align-middle">
 
 {{-- Header kolom tabel. --}}
                 <thead>
@@ -47,7 +66,7 @@
 
 {{-- Tampilkan blok ini hanya jika kondisi ($alat->foto) terpenuhi. --}}
                                 @if($alat->foto)
-                                    <img src="{{ asset('storage/' . $alat->foto) }}" alt="{{ $alat->nama_alat }}" class="img-thumbnail" style="width: 60px; height: 60px; object-fit: cover;">
+                                    <img src="{{ $alat->foto_url }}" alt="{{ $alat->nama_alat }}" class="img-thumbnail" style="width: 60px; height: 60px; object-fit: cover;">
 
 {{-- Tampilkan fallback bila seluruh cabang kondisi sebelumnya tidak terpenuhi. --}}
                                 @else
@@ -94,13 +113,87 @@
 {{-- Tampilkan status kosong ketika koleksi tidak memiliki data. --}}
                     @empty
                         <tr>
-                            <td colspan="8" class="text-center text-muted">Belum ada data alat</td>
+                            <td colspan="8" class="text-center text-muted">
+                                {{ $search !== '' ? 'Data alat tidak ditemukan' : 'Belum ada data alat' }}
+                            </td>
                         </tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
-        {{ $alats->links() }}
+        <div id="alat-pagination">
+            {{ $alats->links() }}
+        </div>
     </div>
 </div>
+@push('scripts')
+<script>
+    (() => {
+        const searchInput = document.getElementById('alat-search');
+        const searchForm = document.getElementById('alat-search-form');
+        const alatTable = document.getElementById('alat-table');
+        const pagination = document.getElementById('alat-pagination');
+        let searchTimer;
+        let activeRequest;
+
+        if (!searchInput || !searchForm || !alatTable || !pagination) {
+            return;
+        }
+
+        const search = async () => {
+            const url = new URL(searchForm.action, window.location.href);
+            const params = new URLSearchParams(new FormData(searchForm));
+            url.search = params.toString();
+
+            if (activeRequest) {
+                activeRequest.abort();
+            }
+            activeRequest = new AbortController();
+
+            try {
+                const response = await fetch(url, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    signal: activeRequest.signal,
+                });
+                if (!response.ok) {
+                    throw new Error(`Pencarian gagal dengan status ${response.status}.`);
+                }
+
+                const html = await response.text();
+                const document = new DOMParser().parseFromString(html, 'text/html');
+                const nextTable = document.getElementById('alat-table');
+                const nextPagination = document.getElementById('alat-pagination');
+                const currentBody = alatTable.querySelector('tbody');
+                const nextBody = nextTable && nextTable.querySelector('tbody');
+
+                if (!currentBody || !nextBody || !nextPagination) {
+                    throw new Error('Respons pencarian tidak berisi daftar alat yang valid.');
+                }
+
+                currentBody.replaceChildren(...nextBody.childNodes);
+                pagination.replaceChildren(...nextPagination.childNodes);
+                window.history.replaceState(null, '', url);
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    return;
+                }
+
+                console.error(error);
+                searchForm.submit();
+            }
+        };
+
+        searchForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            clearTimeout(searchTimer);
+            search();
+        });
+
+        searchInput.addEventListener('input', function () {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(search, 600);
+        });
+    })();
+</script>
+@endpush
 @endsection

@@ -15,6 +15,17 @@
     </div>
     <div class="card-body">
 
+        @if($errors->any())
+            <div class="alert alert-danger" role="alert">
+                <div class="fw-semibold mb-1">Periksa kembali data berikut:</div>
+                <ul class="mb-0">
+                    @foreach($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
 {{-- Form untuk menyimpan perubahan pada perubahan data pengguna. --}}
         <form action="{{ route('admin.users.update', $user) }}" method="POST">
             @csrf
@@ -46,13 +57,27 @@
                 </div>
                 <div class="col-md-6 mb-3">
                     <label class="form-label fw-semibold">Role <span class="text-danger">*</span></label>
-                    <select class="form-select @error('role') is-invalid @enderror" name="role" required>
-                        <option value="admin" {{ old('role', $user->role) === 'admin' ? 'selected' : '' }}>Admin</option>
-                        <option value="petugas" {{ old('role', $user->role) === 'petugas' ? 'selected' : '' }}>Petugas</option>
-                        <option value="peminjam" {{ old('role', $user->role) === 'peminjam' ? 'selected' : '' }}>Peminjam</option>
-                    </select>
+                    @if($user->role === 'admin')
+                        <input type="hidden" name="role" value="admin">
+                        <select class="form-select" disabled aria-label="Role admin tidak dapat diubah">
+                            <option value="admin" selected>Admin</option>
+                        </select>
+                        <small class="text-muted">Role admin tidak dapat diubah.</small>
+                    @elseif(in_array($user->username, ['admin', 'petugas', 'peminjam'], true))
+                        <input type="hidden" name="role" value="{{ $user->role }}">
+                        <select class="form-select" disabled aria-label="Role akun bawaan tidak dapat diubah">
+                            <option value="{{ $user->role }}" selected>{{ ucfirst($user->role) }}</option>
+                        </select>
+                        <small class="text-muted">Role akun bawaan tidak dapat diubah.</small>
+                    @else
+                        <select class="form-select @error('role') is-invalid @enderror" name="role" required>
+                            <option value="admin" {{ old('role', $user->role) === 'admin' ? 'selected' : '' }}>Admin</option>
+                            <option value="petugas" {{ old('role', $user->role) === 'petugas' ? 'selected' : '' }}>Petugas</option>
+                            <option value="peminjam" {{ old('role', $user->role) === 'peminjam' ? 'selected' : '' }}>Peminjam</option>
+                        </select>
+                    @endif
                     @error('role')
-                        <div class="invalid-feedback">{{ $message }}</div>
+                        <div class="invalid-feedback d-block">{{ $message }}</div>
                     @enderror
                 </div>
             </div>

@@ -26,10 +26,7 @@ class KategoriController extends Controller
     /** Memvalidasi dan menyimpan kategori baru. */
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'nama_kategori' => 'required|string|max:100|unique:kategori,nama_kategori',
-            'deskripsi' => 'nullable|string|max:500',
-        ]);
+        $validated = $this->validateKategori($request);
 
         Kategori::create($validated);
 
@@ -51,10 +48,7 @@ class KategoriController extends Controller
     /** Memperbarui nama kategori. */
     public function update(Request $request, Kategori $kategori)
     {
-        $validated = $request->validate([
-            'nama_kategori' => 'required|string|max:100|unique:kategori,nama_kategori,' . $kategori->id,
-            'deskripsi' => 'nullable|string|max:500',
-        ]);
+        $validated = $this->validateKategori($request, $kategori->id);
 
         $kategori->update($validated);
 
@@ -65,6 +59,20 @@ class KategoriController extends Controller
         ]);
 
         return redirect()->route('admin.kategori.index')->with('success', 'Kategori berhasil diupdate!');
+    }
+
+    /** Memvalidasi input kategori agar wajib berhuruf dan bebas angka. */
+    private function validateKategori(Request $request, ?int $ignoreId = null): array
+    {
+        $uniqueRule = $ignoreId ? 'unique:kategori,nama_kategori,' . $ignoreId : 'unique:kategori,nama_kategori';
+
+        return $request->validate([
+            'nama_kategori' => ['required', 'string', 'max:100', 'regex:/\pL/u', 'not_regex:/\p{N}/u', $uniqueRule],
+            'deskripsi' => 'nullable|string|max:500',
+        ], [
+            'nama_kategori.regex' => 'Nama kategori harus mengandung huruf.',
+            'nama_kategori.not_regex' => 'Nama kategori tidak boleh mengandung angka.',
+        ]);
     }
 
     /** Mencegah penghapusan kategori yang masih dipakai alat. */

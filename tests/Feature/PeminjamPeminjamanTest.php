@@ -6,6 +6,7 @@ use App\Models\Peminjaman;
 use App\Models\Pengembalian;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** Kelas pengujian fitur katalog dan peminjaman milik peminjam. */
@@ -56,6 +57,42 @@ class PeminjamPeminjamanTest extends TestCase
         $response->assertOk()
             ->assertSee('12-10-2026')
             ->assertSee('Rp 15.000');
+    }
+
+    public function test_peminjaman_page_orders_updated_records_newest_first_after_refresh(): void
+    {
+        $peminjam = User::factory()->create(['role' => 'peminjam']);
+        $lama = Peminjaman::create([
+            'user_id' => $peminjam->id,
+            'tanggal_pinjam' => today()->addDays(2)->toDateString(),
+            'tanggal_kembali_rencana' => today()->addDays(4)->toDateString(),
+            'status' => 'Menunggu Persetujuan',
+            'catatan' => 'peminjaman lama',
+        ]);
+        $baru = Peminjaman::create([
+            'user_id' => $peminjam->id,
+            'tanggal_pinjam' => today()->toDateString(),
+            'tanggal_kembali_rencana' => today()->addDay()->toDateString(),
+            'status' => 'Menunggu Persetujuan',
+            'catatan' => 'peminjaman baru',
+        ]);
+
+        DB::table('peminjaman')->where('id', $lama->id)->update([
+            'updated_at' => now()->subDay(),
+        ]);
+        DB::table('peminjaman')->where('id', $baru->id)->update([
+            'updated_at' => now(),
+        ]);
+
+        foreach (range(1, 2) as $refresh) {
+            $response = $this->actingAs($peminjam)->get(route('peminjam.peminjaman'));
+            $response->assertOk();
+
+            $this->assertSame(
+                [$baru->id, $lama->id],
+                $response->viewData('peminjaman')->getCollection()->pluck('id')->all()
+            );
+        }
     }
 
     /** Memastikan peminjam dapat mengajukan pengembalian peminjaman aktif. */

@@ -20,7 +20,8 @@ class PeminjamanController extends Controller
         $this->perbaruiStatusTerlambat();
 
         $query = Peminjaman::with(['user', 'detailPeminjaman.alat', 'pengembalian'])
-            ->orderByDesc('tanggal_pinjam');
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id');
         $status = request('status');
 
         if ($status === 'Pengembalian Diajukan') {
@@ -75,7 +76,8 @@ class PeminjamanController extends Controller
 
         $peminjaman = Peminjaman::where('user_id', auth()->id())
             ->with(['detailPeminjaman.alat', 'pengembalian'])
-            ->orderBy('tanggal_pinjam', 'desc')
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
             ->paginate(10);
 
         return view('peminjam.peminjaman', compact('peminjaman'));
@@ -95,6 +97,11 @@ class PeminjamanController extends Controller
             }
 
             $peminjaman->update(['pengembalian_diajukan_at' => now()]);
+            LogAktivitas::create([
+                'user_id' => auth()->id(),
+                'aktivitas' => 'Ajukan Pengembalian',
+                'deskripsi' => 'Mengajukan pengembalian untuk peminjaman ID: '.$peminjaman->id,
+            ]);
 
             return true;
         });
@@ -113,10 +120,14 @@ class PeminjamanController extends Controller
     {
         $validated = $request->validate([
             'tanggal_pinjam' => 'required|date|after_or_equal:today',
-            'tanggal_kembali_rencana' => 'required|date|after:tanggal_pinjam',
+            'tanggal_kembali_rencana' => 'required|date|after_or_equal:today|after:tanggal_pinjam',
             'catatan' => 'nullable|string|max:2000',
             'alat' => 'required|array',
             'alat.*' => 'required|integer|min:0',
+        ], [
+            'tanggal_pinjam.after_or_equal' => 'Tanggal mulai peminjaman minimal hari ini.',
+            'tanggal_kembali_rencana.after_or_equal' => 'Tanggal pengembalian minimal hari ini.',
+            'tanggal_kembali_rencana.after' => 'Tanggal pengembalian harus setelah tanggal mulai peminjaman.',
         ]);
 
         $pilihanAlat = collect($validated['alat'])
@@ -155,6 +166,12 @@ class PeminjamanController extends Controller
                     'kondisi_pinjam' => 'Baik',
                 ]);
             }
+
+            LogAktivitas::create([
+                'user_id' => auth()->id(),
+                'aktivitas' => 'Ajukan Peminjaman',
+                'deskripsi' => 'Mengajukan peminjaman ID: '.$peminjaman->id,
+            ]);
         });
 
         return redirect()->route('peminjam.peminjaman')->with('success', 'Peminjaman berhasil diajukan! Menunggu persetujuan petugas.');
@@ -190,6 +207,7 @@ class PeminjamanController extends Controller
 
             $peminjaman->update([
                 'status' => today()->gt($peminjaman->tanggal_kembali_rencana) ? 'Terlambat' : 'Dipinjam',
+                'petugas_id' => auth()->id(),
             ]);
         });
 

@@ -33,6 +33,20 @@ class Alat extends Model
     {
         return $this->hasMany(DetailPeminjaman::class, 'alat_id');
     }
+    /** Menghasilkan URL foto alat yang aman diakses dari berbagai konfigurasi server. */
+    public function getFotoUrlAttribute(): ?string
+    {
+        if (! $this->foto) {
+            return null;
+        }
+
+        if (str_starts_with($this->foto, 'http://') || str_starts_with($this->foto, 'https://')) {
+            return $this->foto;
+        }
+
+        return route('media.alat', ['filename' => basename($this->foto)]);
+    }
+
     /** Menyaring alat yang stoknya lebih dari nol. */
     public function scopeTersedia($query)
     {

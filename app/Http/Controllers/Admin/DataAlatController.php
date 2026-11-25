@@ -6,18 +6,36 @@ use App\Http\Controllers\Controller;
 use App\Models\Alat;
 use App\Models\Kategori;
 use App\Models\LogAktivitas;
+use App\Models\Peminjaman;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 
 /** Mengelola katalog, CRUD, stok awal, dan foto alat. */
 class DataAlatController extends Controller
 {
     /** Menampilkan alat beserta kategori dengan paginasi. */
-    public function index()
+    public function index(Request $request)
     {
-        $alats = Alat::with('kategori')->orderBy('nama_alat')->paginate(12);
+        $search = trim((string) $request->query('search', ''));
 
-        return view('admin.alat.index', compact('alats'));
+        $alats = Alat::with('kategori')
+            ->when($search !== '', function ($query) use ($search) {
+                $keyword = '%'.$search.'%';
+
+                $query->where(function ($query) use ($keyword) {
+                    $query->where('nama_alat', 'like', $keyword)
+                        ->orWhere('kode_alat', 'like', $keyword)
+                        ->orWhereHas('kategori', function ($query) use ($keyword) {
+                            $query->where('nama_kategori', 'like', $keyword);
+                        });
+                });
+            })
+            ->orderBy('nama_alat')
+            ->paginate(12)
+            ->withQueryString();
+
+        return view('admin.alat.index', compact('alats', 'search'));
     }
 
     /** Menyiapkan pilihan kategori pada formulir alat baru. */
@@ -106,27 +124,56 @@ class DataAlatController extends Controller
     /** Menghapus data dan berkas foto alat. */
     public function destroy(Alat $alat)
     {
-        if ($alat->foto) {
-            Storage::disk('public')->delete($alat->foto);
-        }
+        DB::transaction(function () use ($alat) {
+            $peminjamanIds = $alat->detailPeminjaman()
+                ->pluck('peminjaman_id')
+                ->unique()
+                ->values();
 
-        LogAktivitas::create([
-            'user_id' => auth()->id(),
-            'aktivitas' => 'Delete Alat',
-            'deskripsi' => 'Menghapus alat: '.$alat->nama_alat,
-        ]);
+            LogAktivitas::create([
+                'user_id' => auth()->id(),
+                'aktivitas' => 'Delete Alat',
+                'deskripsi' => 'Menghapus alat beserta riwayat detail: '.$alat->nama_alat,
+            ]);
 
-        $alat->delete();
+            $alat->delete();
+
+            if ($peminjamanIds->isNotEmpty()) {
+                Peminjaman::whereKey($peminjamanIds)
+                    ->whereDoesntHave('detailPeminjaman')
+                    ->delete();
+            }
+
+            if ($alat->foto) {
+                Storage::disk('public')->delete($alat->foto);
+            }
+        });
 
         return redirect()->route('admin.alat.index')->with('success', 'Alat berhasil dihapus!');
     }
 
     /** Menampilkan alat yang stoknya tersedia. */
-    public function katalog()
+    public function katalog(Request $request)
     {
-        $alats = Alat::with('kategori')->where('stok', '>', 0)->orderBy('nama_alat')->get();
+        $search = trim((string) $request->query('search', ''));
 
-        return view('peminjam.katalog', compact('alats'));
+        $alats = Alat::with('kategori')
+            ->where('stok', '>', 0)
+            ->when($search !== '', function ($query) use ($search) {
+                $keyword = '%'.$search.'%';
+
+                $query->where(function ($query) use ($keyword) {
+                    $query->where('nama_alat', 'like', $keyword)
+                        ->orWhere('kode_alat', 'like', $keyword)
+                        ->orWhereHas('kategori', function ($query) use ($keyword) {
+                            $query->where('nama_kategori', 'like', $keyword);
+                        });
+                });
+            })
+            ->orderBy('nama_alat')
+            ->get();
+
+        return view('peminjam.katalog', compact('alats', 'search'));
     }
 }
 

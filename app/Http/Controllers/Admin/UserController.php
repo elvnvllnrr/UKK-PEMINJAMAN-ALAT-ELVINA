@@ -7,6 +7,9 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Models\LogAktivitas;
+use App\Models\Alat;
+use App\Models\Peminjaman;
+use Illuminate\Support\Facades\DB;
 
 /** Mengelola akun pengguna beserta peran dan kredensial. */
 class UserController extends Controller
@@ -49,7 +52,7 @@ class UserController extends Controller
             'deskripsi' => 'Membuat user baru: ' . $user->username,
         ]);
 
-        return redirect()->route('users.index')->with('success', 'User berhasil ditambahkan!');
+        return redirect()->route('admin.users.index')->with('success', 'User berhasil ditambahkan!');
     }
 
     /** Menampilkan formulir perubahan pengguna. */
@@ -68,12 +71,32 @@ class UserController extends Controller
             'role' => 'required|in:admin,petugas,peminjam',
         ]);
 
-        $user->update($validated);
+        $reservedRoles = [
+            'admin' => 'admin',
+            'petugas' => 'petugas',
+            'peminjam' => 'peminjam',
+        ];
+
+        if (isset($reservedRoles[$user->username])
+            && $validated['role'] !== $reservedRoles[$user->username]) {
+            return back()->withErrors([
+                'role' => 'Role akun bawaan ' . $user->username . ' tidak dapat diubah.',
+            ])->withInput();
+        }
+
+        if ($user->role === 'admin' && $validated['role'] !== 'admin') {
+            return back()->withErrors([
+                'role' => 'Role akun admin tidak dapat diubah menjadi role lain.',
+            ])->withInput();
+        }
 
         if ($request->filled('password')) {
-            $request->validate(['password' => 'min:6|confirmed']);
-            $user->update(['password' => Hash::make($request->password)]);
+            $validated['password'] = Hash::make($request->validate([
+                'password' => 'required|string|min:6|confirmed',
+            ])['password']);
         }
+
+        $user->update($validated);
 
         LogAktivitas::create([
             'user_id' => auth()->id(),
@@ -81,19 +104,45 @@ class UserController extends Controller
             'deskripsi' => 'Mengupdate user: ' . $user->username,
         ]);
 
-        return redirect()->route('users.index')->with('success', 'User berhasil diupdate!');
+        return redirect()->route('admin.users.index')->with('success', 'User berhasil diupdate!');
     }
 
     /** Menghapus pengguna beserta catatan aktivitasnya. */
     public function destroy(User $user)
     {
-        LogAktivitas::create([
-            'user_id' => auth()->id(),
-            'aktivitas' => 'Delete User',
-            'deskripsi' => 'Menghapus user: ' . $user->username,
-        ]);
+        if ($user->is(auth()->user())) {
+            return back()->with('error', 'Akun yang sedang digunakan tidak dapat dihapus.');
+        }
 
-        $user->delete();
-        return redirect()->route('users.index')->with('success', 'User berhasil dihapus!');
+        if ($user->role === 'admin' || $user->username === 'admin') {
+            return back()->with('error', 'Akun admin tidak dapat dihapus.');
+        }
+
+        DB::transaction(function () use ($user) {
+            $peminjamans = Peminjaman::with('detailPeminjaman')
+                ->where('user_id', $user->id)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($peminjamans as $peminjaman) {
+                if (in_array($peminjaman->status, ['Dipinjam', 'Terlambat'], true)
+                    && ! $peminjaman->pengembalian()->exists()) {
+                    foreach ($peminjaman->detailPeminjaman as $detail) {
+                        Alat::whereKey($detail->alat_id)->increment('stok', $detail->jumlah);
+                    }
+                }
+            }
+
+            LogAktivitas::create([
+                'user_id' => auth()->id(),
+                'aktivitas' => 'Delete User',
+                'deskripsi' => 'Menghapus user beserta riwayat: ' . $user->username,
+            ]);
+
+            Peminjaman::where('user_id', $user->id)->delete();
+            $user->delete();
+        });
+
+        return redirect()->route('admin.users.index')->with('success', 'User berhasil dihapus!');
     }
 }

@@ -14,7 +14,10 @@
     $tarifDendaTerlambat = (int) config('peminjaman.denda_keterlambatan_per_hari');
     $hariTerlambatDefault = $pengembalian->peminjaman->hitungHariTerlambat($tanggalKembaliDefault);
     $dendaTerlambatDefault = $hariTerlambatDefault * $tarifDendaTerlambat;
-    $dendaKerusakanDefault = (float) old('denda_kerusakan', $pengembalian->denda_kerusakan);
+    $nilaiDendaLama = old('denda_kerusakan');
+    $dendaKerusakanDefault = $nilaiDendaLama !== null
+        ? (int) preg_replace('/\D/', '', (string) $nilaiDendaLama)
+        : (int) $pengembalian->denda_kerusakan;
 @endphp
 
 <div class="card">
@@ -54,6 +57,7 @@
                         name="tanggal_kembali"
                         class="form-control"
                         value="{{ $tanggalKembaliDefault }}"
+                        min="{{ today()->toDateString() }}"
                         max="{{ today()->toDateString() }}"
                         required
                     >
@@ -84,13 +88,12 @@
                 <label for="denda-kerusakan" class="form-label fw-semibold">Denda kerusakan/kehilangan (Rp)</label>
                 <input
                     id="denda-kerusakan"
-                    type="number"
+                    type="text"
                     name="denda_kerusakan"
                     class="form-control"
-                    value="{{ $dendaKerusakanDefault }}"
-                    min="0"
-                    max="9999999999.99"
-                    step="1"
+                    value="{{ number_format($dendaKerusakanDefault, 0, ',', '.') }}"
+                    inputmode="numeric"
+                    autocomplete="off"
                 >
                 <small class="text-muted">Denda ini ditentukan manual dan ditambahkan ke denda keterlambatan otomatis.</small>
             </div>
@@ -129,7 +132,31 @@
         const dailyRate = Number(lateFineSummary.dataset.dailyRate);
         const currency = new Intl.NumberFormat('id-ID');
 
+        const formatDamageFineInput = () => {
+            const cursor = damageFineInput.selectionStart;
+            const digitsBeforeCursor = damageFineInput.value.slice(0, cursor).replace(/\D/g, '').length;
+            const digits = damageFineInput.value.replace(/\D/g, '');
+            const formatted = digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+            damageFineInput.value = formatted;
+
+            if (cursor !== null) {
+                let nextCursor = 0;
+                let digitCount = 0;
+                while (nextCursor < formatted.length && digitCount < digitsBeforeCursor) {
+                    if (/\d/.test(formatted[nextCursor])) {
+                        digitCount++;
+                    }
+                    nextCursor++;
+                }
+                damageFineInput.setSelectionRange(nextCursor, nextCursor);
+            }
+
+            return Number(digits || 0);
+        };
+
         const updateFineEstimate = () => {
+            const damageFine = formatDamageFineInput();
             const [dueYear, dueMonth, dueDay] = dueDate.split('-').map(Number);
             const [returnYear, returnMonth, returnDay] = returnDateInput.value.split('-').map(Number);
             const dueTime = Date.UTC(dueYear, dueMonth - 1, dueDay);
@@ -139,7 +166,7 @@
 
             lateDaysLabel.textContent = lateDays > 0 ? `${lateDays} hari terlambat` : 'Tidak terlambat';
             lateFineAmount.textContent = currency.format(lateFine);
-            totalFineAmount.textContent = currency.format(lateFine + Number(damageFineInput.value || 0));
+            totalFineAmount.textContent = currency.format(lateFine + damageFine);
         };
 
         returnDateInput.addEventListener('change', updateFineEstimate);

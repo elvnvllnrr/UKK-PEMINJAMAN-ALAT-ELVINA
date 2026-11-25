@@ -22,7 +22,8 @@ class PengembalianController extends Controller
             ->update(['status' => 'Terlambat']);
 
         $pengembalian = Pengembalian::with(['peminjaman.user'])
-            ->orderBy('tanggal_kembali', 'desc')
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
             ->paginate(10);
         $pengembalianMenunggu = Peminjaman::with(['user', 'detailPeminjaman.alat'])
             ->whereIn('status', ['Dipinjam', 'Terlambat'])
@@ -74,13 +75,18 @@ class PengembalianController extends Controller
     /** Memvalidasi kondisi alat, menghitung denda, dan mencatat pengembalian atomik. */
     public function store(Request $request)
     {
+        $this->normalizeDamageFineInput($request);
+
         $validated = $request->validate([
             'peminjaman_id' => 'required|exists:peminjaman,id',
-            'tanggal_kembali' => 'required|date|before_or_equal:today',
-            'denda_kerusakan' => 'nullable|numeric|min:0|max:9999999999.99',
+            'tanggal_kembali' => 'required|date|after_or_equal:today|before_or_equal:today',
+            'denda_kerusakan' => 'nullable|integer|min:0|max:9999999999',
             'catatan' => 'nullable|string|max:2000',
             'detail' => 'required|array',
             'detail.*.kondisi_kembali' => 'required|in:Baik,Rusak Ringan,Rusak Berat,Hilang',
+        ], [
+            'tanggal_kembali.after_or_equal' => 'Tanggal pengembalian minimal hari ini.',
+            'tanggal_kembali.before_or_equal' => 'Tanggal pengembalian tidak boleh melebihi hari ini.',
         ]);
         DB::transaction(function () use ($validated) {
             $peminjaman = Peminjaman::whereKey($validated['peminjaman_id'])
@@ -122,7 +128,7 @@ class PengembalianController extends Controller
             }
 
             $adaMasalah = collect($kondisiKembali)->contains(fn ($kondisi) => $kondisi !== 'Baik');
-            $dendaKerusakan = (float) ($validated['denda_kerusakan'] ?? 0);
+            $dendaKerusakan = (int) ($validated['denda_kerusakan'] ?? 0);
 
             if ($adaMasalah && ($validated['denda_kerusakan'] ?? null) === null) {
                 throw ValidationException::withMessages([
@@ -144,7 +150,7 @@ class PengembalianController extends Controller
             $dendaKeterlambatan = $peminjaman->hitungHariTerlambat($tanggalKembali)
                 * (int) config('peminjaman.denda_keterlambatan_per_hari');
             $totalDenda = $dendaKeterlambatan + $dendaKerusakan;
-            if ($totalDenda > 9999999999.99) {
+            if ($totalDenda > 9999999999) {
                 throw ValidationException::withMessages([
                     'denda_kerusakan' => 'Total denda melebihi batas maksimum yang dapat dicatat.',
                 ]);
@@ -172,7 +178,8 @@ class PengembalianController extends Controller
 
             Pengembalian::create([
                 'peminjaman_id' => $peminjaman->id,
-                'tanggal_kembali' => $tanggalKembali,
+                'petugas_id' => auth()->id(),
+                'tanggal_dikembalikan' => $tanggalKembali,
                 'status' => $statusPengembalian,
                 'denda' => $totalDenda,
                 'denda_kerusakan' => $dendaKerusakan,
@@ -182,13 +189,14 @@ class PengembalianController extends Controller
             if ($statusAktif) {
                 $peminjaman->update(['status' => 'Dikembalikan']);
             }
+
+            LogAktivitas::create([
+                'user_id' => auth()->id(),
+                'aktivitas' => 'Proses Pengembalian',
+                'deskripsi' => 'Memproses pengembalian untuk peminjaman ID: '.$peminjaman->id,
+            ]);
         });
 
-        LogAktivitas::create([
-            'user_id' => auth()->id(),
-            'aktivitas' => 'Create Pengembalian',
-            'deskripsi' => 'Membuat pengembalian untuk peminjaman ID: '.$validated['peminjaman_id'],
-        ]);
         $route = auth()->user()->role === 'petugas' ? 'petugas.pengembalian.index' : 'admin.pengembalian.index';
 
         return redirect()->route($route)->with('success', 'Pengembalian berhasil dicatat.');
@@ -213,10 +221,15 @@ class PengembalianController extends Controller
     /** Menghitung ulang denda dan status berdasarkan koreksi pengembalian. */
     public function update(Request $request, Pengembalian $pengembalian)
     {
+        $this->normalizeDamageFineInput($request);
+
         $validated = $request->validate([
-            'tanggal_kembali' => 'required|date|before_or_equal:today',
-            'denda_kerusakan' => 'nullable|numeric|min:0|max:9999999999.99',
+            'tanggal_kembali' => 'required|date|after_or_equal:today|before_or_equal:today',
+            'denda_kerusakan' => 'nullable|integer|min:0|max:9999999999',
             'catatan' => 'nullable|string|max:2000',
+        ], [
+            'tanggal_kembali.after_or_equal' => 'Tanggal pengembalian minimal hari ini.',
+            'tanggal_kembali.before_or_equal' => 'Tanggal pengembalian tidak boleh melebihi hari ini.',
         ]);
 
         $pengembalian->load('peminjaman.detailPeminjaman');
@@ -225,7 +238,7 @@ class PengembalianController extends Controller
             ->filter();
         $statusMasalahLama = in_array($pengembalian->status, ['Rusak', 'Hilang'], true);
         $adaMasalah = $statusMasalahLama || $kondisi->contains(fn ($nilai) => $nilai !== 'Baik');
-        $dendaKerusakan = (float) ($validated['denda_kerusakan'] ?? 0);
+        $dendaKerusakan = (int) ($validated['denda_kerusakan'] ?? 0);
 
         if ($adaMasalah && ($validated['denda_kerusakan'] ?? null) === null) {
             throw ValidationException::withMessages([
@@ -247,7 +260,7 @@ class PengembalianController extends Controller
             ->hitungHariTerlambat($validated['tanggal_kembali'])
         * (int) config('peminjaman.denda_keterlambatan_per_hari');
         $totalDenda = $dendaKeterlambatan + $dendaKerusakan;
-        if ($totalDenda > 9999999999.99) {
+        if ($totalDenda > 9999999999) {
             throw ValidationException::withMessages([
                 'denda_kerusakan' => 'Total denda melebihi batas maksimum yang dapat dicatat.',
             ]);
@@ -266,7 +279,7 @@ class PengembalianController extends Controller
         : 'Tepat Waktu'));
 
         $pengembalian->update([
-            'tanggal_kembali' => $validated['tanggal_kembali'],
+            'tanggal_dikembalikan' => $validated['tanggal_kembali'],
             'status' => $statusPengembalian,
             'denda' => $totalDenda,
             'denda_kerusakan' => $dendaKerusakan,
@@ -330,6 +343,16 @@ class PengembalianController extends Controller
         $route = auth()->user()->role === 'petugas' ? 'petugas.pengembalian.index' : 'admin.pengembalian.index';
 
         return redirect()->route($route)->with('success', 'Pengembalian berhasil dihapus!');
+    }
+
+    private function normalizeDamageFineInput(Request $request): void
+    {
+        $value = $request->input('denda_kerusakan');
+        if (is_string($value)) {
+            $request->merge([
+                'denda_kerusakan' => str_replace('.', '', trim($value)),
+            ]);
+        }
     }
 }
 
